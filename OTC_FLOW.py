@@ -36,7 +36,7 @@ def authenticate():
         if username in USERS and USERS[username] == password:
             st.session_state["authenticated"] = True
             st.session_state["user"] = username
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("❌ Identifiants incorrects.")
 authenticate()
@@ -123,4 +123,4 @@ else:
 # 🔹 Bouton de déconnexion
 if st.button("🚪 Se déconnecter"):
     st.session_state["authenticated"] = False
-    st.experimental_rerun()
+    st.rerun()
