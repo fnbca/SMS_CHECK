@@ -7,7 +7,11 @@ TWILIO_ACCOUNT_SID = st.secrets["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
 TWILIO_PHONE_NUMBER = st.secrets["TWILIO_PHONE_NUMBER"]
 FORM_URL = st.secrets["FORM_URL"]
-users = st.secrets["users"]  # Liste des utilisateurs depuis les secrets
+users = { 
+    "admin": st.secrets["admin"], 
+    "user1": st.secrets["user1"], 
+    "user2": st.secrets["user2"]
+}
 
 # Authentification
 if "authentication_status" not in st.session_state:
