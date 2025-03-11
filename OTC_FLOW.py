@@ -27,100 +27,125 @@ USERS = {
 DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DATABASE}?sslmode={SSL_MODE}"
 engine = create_engine(DATABASE_URL)
 
-# 🔹 Authentification utilisateur
-def authenticate():
+# 🔹 Vérifier et créer la table sms_logs si elle n'existe pas
+def create_table_if_not_exists():
+    with engine.connect() as connection:
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS sms_logs (
+                id SERIAL PRIMARY KEY,
+                utilisateur TEXT,
+                numero TEXT,
+                message TEXT,
+                url TEXT,
+                statut TEXT,
+                date_heure TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+create_table_if_not_exists()
+
+# 🔹 Gestion de la session utilisateur et navigation
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "user" not in st.session_state:
+    st.session_state["user"] = None
+if "page" not in st.session_state:
+    st.session_state["page"] = "login"
+
+# 🔹 Page de connexion
+if st.session_state["page"] == "login":
     st.title("🔐 Connexion requise")
     username = st.text_input("Nom d'utilisateur")
     password = st.text_input("Mot de passe", type="password")
+
     if st.button("🔑 Se connecter"):
         if username in USERS and USERS[username] == password:
             st.session_state["authenticated"] = True
             st.session_state["user"] = username
+            st.session_state["page"] = "sms"
             st.rerun()
         else:
             st.error("❌ Identifiants incorrects.")
-authenticate()
-
-if "authenticated" not in st.session_state:
-    st.stop()
 
 # 🔹 Interface principale après connexion
-st.title(f"📩 Envoi de SMS - Connecté en tant que {st.session_state['user']}")
+if st.session_state["authenticated"] and st.session_state["page"] == "sms":
+    st.title(f"📩 Envoi de SMS - Connecté en tant que {st.session_state['user']}")
 
-client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# 📂 Upload CSV ou saisie manuelle des numéros
-uploaded_file = st.file_uploader("📂 Téléchargez un fichier CSV avec une colonne 'phone_number'", type=["csv"])
-manual_numbers = st.text_area("✍️ Ou entrez les numéros (séparés par une virgule)")
+    # 📂 Upload CSV ou saisie manuelle des numéros
+    uploaded_file = st.file_uploader("📂 Téléchargez un fichier CSV avec une colonne 'phone_number'", type=["csv"])
+    manual_numbers = st.text_area("✍️ Ou entrez les numéros (séparés par une virgule)")
 
-phone_numbers = []
+    phone_numbers = []
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    if "phone_number" in df.columns:
-        phone_numbers = df["phone_number"].astype(str).tolist()
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        if "phone_number" in df.columns:
+            phone_numbers = df["phone_number"].astype(str).tolist()
+        else:
+            st.error("⚠️ Le fichier CSV doit contenir une colonne **'phone_number'**.")
+
+    if manual_numbers:
+        phone_numbers += [num.strip() for num in manual_numbers.split(",")]
+
+    # 🔹 Vérification des numéros (seuls les +33 sont autorisés)
+    valid_numbers = [num for num in phone_numbers if num.startswith("+33")]
+    invalid_numbers = [num for num in phone_numbers if not num.startswith("+33")]
+
+    # 🔹 Affichage des erreurs pour les numéros invalides
+    if invalid_numbers:
+        st.error("❌ Les numéros suivants ne sont **pas valides** (seuls les numéros français +33 sont autorisés) :")
+        for num in invalid_numbers:
+            st.write(f"🔴 {num}")
+
+    # 🔹 Bouton d'envoi des SMS
+    if st.button("📤 Envoyer les SMS") and valid_numbers:
+        for number in valid_numbers:
+            try:
+                message = client.messages.create(
+                    body=f"Bonjour, veuillez remplir votre formulaire ici : {FORM_URL}",
+                    from_=TWILIO_PHONE_NUMBER,
+                    to=number
+                )
+
+                with engine.connect() as connection:
+                    query = text("""
+                        INSERT INTO sms_logs (utilisateur, numero, message, url, statut, date_heure)
+                        VALUES (:utilisateur, :numero, :message, :url, :statut, :date_heure)
+                    """)
+                    connection.execute(query, {
+                        "utilisateur": st.session_state["user"],
+                        "numero": number,
+                        "message": f"Bonjour, veuillez remplir votre formulaire ici : {FORM_URL}",
+                        "url": FORM_URL,
+                        "statut": "Envoyé",
+                        "date_heure": datetime.datetime.now()
+                    })
+
+                st.success(f"✅ SMS envoyé à {number}")
+            except Exception as e:
+                st.error(f"⚠️ Erreur d'envoi à {number} : {e}")
+
+    # 🔹 Affichage de l'historique des SMS envoyés
+    st.subheader("📊 Historique des SMS envoyés")
+
+    def get_sms_logs():
+        with engine.connect() as connection:
+            query = text("SELECT * FROM sms_logs ORDER BY date_heure DESC")
+            result = connection.execute(query)
+            return result.fetchall()
+
+    logs = get_sms_logs()
+
+    if logs:
+        df_logs = pd.DataFrame(logs, columns=["ID", "Utilisateur", "Numéro", "Message", "URL", "Statut", "Date & Heure"])
+        st.dataframe(df_logs)
     else:
-        st.error("⚠️ Le fichier CSV doit contenir une colonne **'phone_number'**.")
+        st.info("📌 Aucun SMS envoyé pour le moment.")
 
-if manual_numbers:
-    phone_numbers += [num.strip() for num in manual_numbers.split(",")]
-
-# 🔹 Vérification des numéros (seuls les +33 sont autorisés)
-valid_numbers = [num for num in phone_numbers if num.startswith("+33")]
-invalid_numbers = [num for num in phone_numbers if not num.startswith("+33")]
-
-# 🔹 Affichage des erreurs pour les numéros invalides
-if invalid_numbers:
-    st.error("❌ Les numéros suivants ne sont **pas valides** (seuls les numéros français +33 sont autorisés) :")
-    for num in invalid_numbers:
-        st.write(f"🔴 {num}")
-
-# 🔹 Bouton d'envoi des SMS
-if st.button("📤 Envoyer les SMS") and valid_numbers:
-    for number in valid_numbers:
-        try:
-            message = client.messages.create(
-                body=f"Bonjour, veuillez remplir votre formulaire ici : {FORM_URL}",
-                from_=TWILIO_PHONE_NUMBER,
-                to=number
-            )
-
-            with engine.connect() as connection:
-                query = text("""
-                    INSERT INTO sms_logs (utilisateur, numero, message, url, statut, date_heure)
-                    VALUES (:utilisateur, :numero, :message, :url, :statut, :date_heure)
-                """)
-                connection.execute(query, {
-                    "utilisateur": st.session_state["user"],
-                    "numero": number,
-                    "message": f"Bonjour, veuillez remplir votre formulaire ici : {FORM_URL}",
-                    "url": FORM_URL,
-                    "statut": "Envoyé",
-                    "date_heure": datetime.datetime.now()
-                })
-
-            st.success(f"✅ SMS envoyé à {number}")
-        except Exception as e:
-            st.error(f"⚠️ Erreur d'envoi à {number} : {e}")
-
-# 🔹 Affichage de l'historique des SMS envoyés
-st.subheader("📊 Historique des SMS envoyés")
-
-def get_sms_logs():
-    with engine.connect() as connection:
-        query = text("SELECT * FROM sms_logs ORDER BY date_heure DESC")
-        result = connection.execute(query)
-        return result.fetchall()
-
-logs = get_sms_logs()
-
-if logs:
-    df_logs = pd.DataFrame(logs, columns=["ID", "Utilisateur", "Numéro", "Message", "URL", "Statut", "Date & Heure"])
-    st.dataframe(df_logs)
-else:
-    st.info("📌 Aucun SMS envoyé pour le moment.")
-
-# 🔹 Bouton de déconnexion
-if st.button("🚪 Se déconnecter"):
-    st.session_state["authenticated"] = False
-    st.rerun()
+    # 🔹 Bouton de déconnexion
+    if st.button("🚪 Se déconnecter"):
+        st.session_state["authenticated"] = False
+        st.session_state["page"] = "login"
+        st.rerun()
