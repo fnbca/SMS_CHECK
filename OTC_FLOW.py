@@ -21,6 +21,6 @@ try:
     with engine.connect() as connection:
         result = connection.execute(text("SELECT NOW();"))
         current_time = result.fetchone()[0]
-        st.success(f"✅ Connexion réussie ! Heure actuelle : {current_time}")
+        st.success(f"✅ Connexion réussie à NeonDB ! Heure actuelle : {current_time}")
 except Exception as e:
     st.error(f"❌ Erreur de connexion : {e}")
