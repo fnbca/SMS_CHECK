@@ -265,7 +265,7 @@ if not st.session_state["authentication_status"]:
         if username in users and users[username] == password:
             st.session_state["authentication_status"] = True
             st.session_state["user"] = username
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("❌ Identifiants incorrects. Veuillez réessayer.")
 
