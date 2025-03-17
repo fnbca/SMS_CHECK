@@ -1,4 +1,4 @@
 streamlit
 pandas
-sqlalchemy
 twilio
+psycopg2-binary
